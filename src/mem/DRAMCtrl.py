@@ -1590,4 +1590,4 @@ class HBM_2000_8H_1x128(DRAMCtrl):
     tXP = '8ns'
 
     # start with tRFC + tXP -> 160ns + 8ns = 168ns
-    tXS = '168ns
+    tXS = '168ns'
