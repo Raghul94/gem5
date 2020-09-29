@@ -35,7 +35,7 @@
 
 from __future__ import print_function
 from __future__ import absolute_import
-
+import os
 import m5.objects
 from common import ObjectList
 from common import HMC
@@ -87,6 +87,17 @@ def create_mem_ctrl(cls, r, i, nbr_mem_ctrls, intlv_bits, intlv_size):
                                       intlvMatch = i)
     return ctrl
 
+def dramsim3_size_mb(ini_file):
+    """Parsing ini file for DRAMsim3 so that the system knows mem size"""
+    assert(os.path.exists(ini_file))
+    import ConfigParser
+    config = ConfigParser.ConfigParser()
+    config.read(ini_file)
+    channel_size = config.getint("system", "channel_size")
+    num_channels = config.getint("system", "channels")
+    size_mb = channel_size * num_channels
+    return size_mb
+
 def config_mem(options, system):
     """
     Create the memory controllers based on the options and attach them.
@@ -110,6 +121,18 @@ def config_mem(options, system):
     opt_mem_ranks = getattr(options, "mem_ranks", None)
     opt_dram_powerdown = getattr(options, "enable_dram_powerdown", None)
     opt_mem_channels_intlv = getattr(options, "mem_channels_intlv", 128)
+    opt_dramsim3_ini = getattr(options, 'dramsim3_ini', None)
+
+    if opt_mem_type == "DRAMsim3":
+        ini_file = ''
+        if opt_dramsim3_ini:
+            ini_file = opt_dramsim3_ini
+        else:
+            ini_file = m5.objects.DRAMsim3.config_file
+        mem_size = dramsim3_size_mb(ini_file)
+        mem_size_str =  str(mem_size) + "MB"
+        options.mem_size = mem_size_str
+        system.mem_ranges = [m5.objects.AddrRange(mem_size_str)]
 
     if opt_mem_type == "HMC_2500_1x32":
         HMChost = HMC.config_hmc_host_ctrl(options, system)
@@ -191,3 +214,24 @@ def config_mem(options, system):
             subsystem.mem_ctrls[i].device_size = options.hmc_dev_vault_size
         else:
             subsystem.mem_ctrls[i].port = xbar.master
+     
+        # We need to do a couple of things differently for DRAMsim3
+        # use same outdir as gem5, and use its own address mapping
+        if opt_mem_type == 'DRAMsim3':
+            mem_ctrl = cls()
+            if opt_dramsim3_ini:
+                mem_ctrl.config_file = opt_dramsim3_ini
+            mem_ctrl.file_path = m5.options.outdir
+            mem_ctrl.range=m5.objects.AddrRange(r.size())
+        else:
+            mem_ctrl = create_mem_ctrl(cls, r, i, nbr_mem_ctrls,
+                                       intlv_bits, intlv_size)
+            # Set the number of ranks based on the command-line
+            # options if it was explicitly set
+            if issubclass(cls, m5.objects.DRAMCtrl) and opt_mem_ranks:
+                mem_ctrl.ranks_per_channel = opt_mem_ranks
+
+            if opt_elastic_trace_en:
+                mem_ctrl.latency = '1ns'
+                print("For elastic trace, over-riding Simple Memory "
+                    "latency to 1ns.")
